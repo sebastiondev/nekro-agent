@@ -1,12 +1,14 @@
+import hmac
 import json
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel
 
 from nekro_agent.api.schemas import AgentCtx, WebhookRequest
 from nekro_agent.core.logger import get_sub_logger
-from nekro_agent.schemas.errors import NotFoundError
+from nekro_agent.core.os_env import OsEnv
+from nekro_agent.schemas.errors import NotFoundError, UnauthorizedError
 from nekro_agent.services.plugin.collector import plugin_collector
 
 logger = get_sub_logger("webhook")
@@ -21,7 +23,18 @@ class WebhookResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 
-@router.post("/{endpoint}", summary="Webhook 调用")
+async def verify_webhook_token(x_webhook_token: Optional[str] = Header(None)):
+    """验证 Webhook 调用令牌
+
+    通过 X-Webhook-Token 请求头进行身份验证，防止未授权的外部请求触发 Webhook。
+    """
+    if not x_webhook_token or not OsEnv.WEBHOOK_SECRET_KEY or not hmac.compare_digest(x_webhook_token, OsEnv.WEBHOOK_SECRET_KEY):
+        logger.warning("非法的 Webhook 调用令牌")
+        raise UnauthorizedError
+    return True
+
+
+@router.post("/{endpoint}", summary="Webhook 调用", dependencies=[Depends(verify_webhook_token)])
 async def webhook_handler(
     endpoint: str,
     request: Request,
