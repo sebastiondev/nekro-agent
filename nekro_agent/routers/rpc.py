@@ -1,5 +1,4 @@
 import json
-import pickle
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 
@@ -53,8 +52,17 @@ async def rpc_exec(container_key: str, from_chat_key: str, data: Request) -> Res
         await message_service.push_system_message(chat_key=from_chat_key, agent_messages=str(result))
     if method_type == SandboxMethodType.MULTIMODAL_AGENT:
         result = f"<AGENT_RESULT>{json.dumps(result, ensure_ascii=False)}</AGENT_RESULT>"
+    if error_message:
+        content: bytes = error_message.encode("utf-8")
+        media_type = "text/plain; charset=utf-8"
+    else:
+        try:
+            content = json.dumps({"result": result}, ensure_ascii=False, default=str).encode("utf-8")
+        except (TypeError, ValueError):
+            content = json.dumps({"result": str(result)}, ensure_ascii=False).encode("utf-8")
+        media_type = "application/json"
     return Response(
-        content=error_message or pickle.dumps(result),
-        media_type="application/octet-stream",
+        content=content,
+        media_type=media_type,
         headers={"Method-Type": method_type.value, "Run-Error": "True" if error_message else "False"},
     )
